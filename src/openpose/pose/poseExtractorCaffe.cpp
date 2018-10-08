@@ -4,6 +4,7 @@
 #include <openpose/gpu/cuda.hpp>
 #include <openpose/net/bodyPartConnectorCaffe.hpp>
 #include <openpose/net/netCaffe.hpp>
+#include <openpose/net/netTensorRT.hpp>
 #include <openpose/net/nmsCaffe.hpp>
 #include <openpose/net/resizeAndMergeCaffe.hpp>
 #include <openpose/pose/poseParameters.hpp>
