@@ -22,17 +22,12 @@
 #include "NvInfer.h"
 #include "NvCaffeParser.h"
 
-
 using namespace nvinfer1;
 using namespace nvcaffeparser1;
-
-//*****
-
 
 namespace op
 {
     std::mutex sMutexNetTensorRT;
-    //std::atomic<bool> sGoogleLoggingInitialized{false};
     #ifdef USE_OPENCL
         std::atomic<bool> sOpenCLInitialized{false};
     #endif
@@ -42,10 +37,13 @@ namespace op
         #ifdef USE_TENSORRT
         // Init with constructor
         const int mGpuId;
-        const std::string mCaffeproto;
-        const std::string mCaffetraindModel;
+        const std::string mCaffeProto;
+        const std::string mCaffeTrainedModel;
         const std::string mLastBlobName;
         std::vector<int> mNetInputSize4D;
+
+        std::atomic<bool> sGoogleLoggingInitialized{false};
+
         // Init with thread
         //std::unique_ptr<caffe::Net<float>> upCaffeNet;
         //boost::shared_ptr<caffe::Blob<float>> spOutputBlob;
@@ -82,7 +80,7 @@ namespace op
         #endif
     };
 
-    #ifdef USE_CAFFE
+    #ifdef USE_TENSORRT
         inline void reshapeNetTensorRT(caffe::Net<float>* caffeNet, const std::vector<int>& dimensions)
         {
             try
@@ -181,7 +179,7 @@ namespace op
                 if (inputData.getNumberDimensions() != 4 || inputData.getSize(1) != 3)
                     error("The Array inputData must have 4 dimensions: [batch size, 3 (RGB), height, width].",
                           __LINE__, __FUNCTION__, __FILE__);
-                std::cout << upImpl->mCaffeproto << std::endl;
+
                 // Reshape Caffe net if required
                 if (!vectorsAreEqual(upImpl->mNetInputSize4D, inputData.getSize()))
                 {
@@ -193,13 +191,6 @@ namespace op
                     auto* gpuImagePtr = upImpl->upCaffeNet->blobs().at(0)->mutable_gpu_data();
                     cudaMemcpy(gpuImagePtr, inputData.getConstPtr(), inputData.getVolume() * sizeof(float),
                                cudaMemcpyHostToDevice);
-                #elif defined USE_OPENCL
-                    auto* gpuImagePtr = upImpl->upCaffeNet->blobs().at(0)->mutable_gpu_data();
-                    cl::Buffer imageBuffer = cl::Buffer((cl_mem)gpuImagePtr, true);
-                    OpenCL::getInstance(upImpl->mGpuId)->getQueue().enqueueWriteBuffer(imageBuffer, true, 0,
-                                                                                       inputData.getVolume() * sizeof(float),
-                                                                                       inputData.getConstPtr());
-                #else
                     auto* cpuImagePtr = upImpl->upCaffeNet->blobs().at(0)->mutable_cpu_data();
                     std::copy(inputData.getConstPtr(), inputData.getConstPtr() + inputData.getVolume(), cpuImagePtr);
                 #endif

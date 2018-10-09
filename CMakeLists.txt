@@ -124,6 +124,8 @@ if (${DL_FRAMEWORK} MATCHES "CAFFE")
   add_definitions(-DUSE_CAFFE)
 endif (${DL_FRAMEWORK} MATCHES "CAFFE")
 
+add_definitions(-DUSE_TENSORRT)
+
 if (WIN32)
   # Select the Enhanced Instruction Set
   set(INSTRUCTION_SET NONE CACHE STRING "Enable Enhanced Instruction Set")
@@ -367,6 +369,7 @@ if (UNIX OR APPLE)
   if (${GPU_MODE} MATCHES "CUDA")
     include(cmake/Cuda.cmake)
     find_package(CuDNN)
+    find_package(TensorRT)
   endif (${GPU_MODE} MATCHES "CUDA")
   find_package(GFlags)
   find_package(Glog)
@@ -867,7 +870,7 @@ if (UNIX OR APPLE)
   set(OpenPose_3rdparty_libraries ${OpenPose_3rdparty_libraries} pthread)
 endif (UNIX OR APPLE)
 
-set(examples_3rdparty_libraries ${OpenPose_3rdparty_libraries} ${GFLAGS_LIBRARY})
+set(examples_3rdparty_libraries ${OpenPose_3rdparty_libraries} ${GFLAGS_LIBRARY} ${LIB_NVINFER} ${LIB_NVCAFFE_PARSER})
 
 
 ### ADD SUBDIRECTORIES
