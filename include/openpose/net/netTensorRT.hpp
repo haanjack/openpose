@@ -3,6 +3,7 @@
 
 #include <openpose/core/common.hpp>
 #include <openpose/net/net.hpp>
+#include <openpose/net/netTensorRTBase.hpp>
 
 namespace op
 {
@@ -18,13 +19,13 @@ namespace op
 
         void forwardPass(const Array<float>& inputNetData) const;
 
-        boost::shared_ptr<caffe::Blob<float>> getOutputBlob() const;
+        boost::shared_ptr<float> getOutputBlob() const;
 
     private:
         // PIMPL idiom
         // http://www.cppsamples.com/common-tasks/pimpl.html
-        struct ImplNetCaffe;
-        std::unique_ptr<ImplNetCaffe> upImpl;
+        struct ImplNetTensorRT;
+        std::unique_ptr<ImplNetTensorRT> upImpl;
 
         // PIMP requires DELETE_COPY & destructor, or extra code
         // http://oliora.github.io/2015/12/29/pimpl-and-rule-of-zero.html

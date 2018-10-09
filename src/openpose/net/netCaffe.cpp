@@ -90,6 +90,7 @@ namespace op
         {
             try
             {
+                std::cout << __FILE__ << "[" << __LINE__ << "]: " << __FUNCTION__ << std::endl;
                 caffeNet->blobs()[0]->Reshape(dimensions);
                 caffeNet->Reshape();
                 #ifdef USE_CUDA
@@ -112,7 +113,8 @@ namespace op
     {
         try
         {
-            #ifndef USE_CAFFE
+            std::cout << __FILE__ << "[" << __LINE__ << "]: " << __FUNCTION__ << std::endl;
+#ifndef USE_CAFFE
                 UNUSED(netInputSize4D);
                 UNUSED(caffeProto);
                 UNUSED(caffeTrainedModel);
@@ -136,7 +138,8 @@ namespace op
     {
         try
         {
-            #ifdef USE_CAFFE
+            std::cout << __FILE__ << "[" << __LINE__ << "]: " << __FUNCTION__ << std::endl;
+#ifdef USE_CAFFE
                 // Initialize net
                 #ifdef USE_OPENCL
                     caffe::Caffe::set_mode(caffe::Caffe::GPU);
@@ -232,7 +235,8 @@ namespace op
     {
         try
         {
-            #ifdef USE_CAFFE
+            std::cout << __FILE__ << "[" << __LINE__ << "]: " << __FUNCTION__ << std::endl;
+#ifdef USE_CAFFE
                 return upImpl->spOutputBlob;
             #else
                 return nullptr;

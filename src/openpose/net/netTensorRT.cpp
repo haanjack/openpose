@@ -14,16 +14,14 @@
 #endif
 #include <openpose/utilities/fileSystem.hpp>
 #include <openpose/utilities/standard.hpp>
+#include <openpose/utilities/tensorRT.hpp>
 #include <openpose/net/netTensorRT.hpp>
-
-
-//*****
 
 #include <cuda_runtime_api.h>
 
 #include "NvInfer.h"
 #include "NvCaffeParser.h"
-#include <openpose/utilities/trtCommon.hpp>
+
 
 using namespace nvinfer1;
 using namespace nvcaffeparser1;
@@ -34,69 +32,53 @@ using namespace nvcaffeparser1;
 namespace op
 {
     std::mutex sMutexNetTensorRT;
-    std::atomic<bool> sGoogleLoggingInitialized{false};
+    //std::atomic<bool> sGoogleLoggingInitialized{false};
     #ifdef USE_OPENCL
         std::atomic<bool> sOpenCLInitialized{false};
     #endif
 
     struct NetTensorRT::ImplNetTensorRT
     {
-        #ifdef USE_CAFFE
-            // Init with constructor
-            const int mGpuId;
-            const std::string mCaffeProto;
-            const std::string mCaffeTrainedModel;
-            const std::string mLastBlobName;
-            std::vector<int> mNetInputSize4D;
-            // Init with thread
-            std::unique_ptr<caffe::Net<float>> upCaffeNet;
-            boost::shared_ptr<caffe::Blob<float>> spOutputBlob;
+        #ifdef USE_TENSORRT
+        // Init with constructor
+        const int mGpuId;
+        const std::string mCaffeproto;
+        const std::string mCaffetraindModel;
+        const std::string mLastBlobName;
+        std::vector<int> mNetInputSize4D;
+        // Init with thread
+        //std::unique_ptr<caffe::Net<float>> upCaffeNet;
+        //boost::shared_ptr<caffe::Blob<float>> spOutputBlob;
+        boost::shared_ptr<float> spOutputBlob;
 
-            ImplNetTensorRT(const std::string& caffeProto, const std::string& caffeTrainedModel, const int gpuId,
-                         const bool enableGoogleLogging, const std::string& lastBlobName) :
-                mGpuId{gpuId},
-                mCaffeProto{caffeProto},
-                mCaffeTrainedModel{caffeTrainedModel},
-                mLastBlobName{lastBlobName}
+        ImplNetTensorRT(const std::string &caffeProto,
+                        const std::string &caffeTrainedModel, const int gpuId,
+                        const bool enableGoogleLogging, const std::string &lastBlobName) : 
+                        mGpuId{gpuId},
+                        mCaffeProto{caffeProto},
+                        mCaffeTrainedModel{caffeTrainedModel},
+                        mLastBlobName { lastBlobName }
+        {
+            const std::string message{".\nPossible causes:\n\t1. Not downloading the OpenPose trained models."
+                                      "\n\t2. Not running OpenPose from the same directory where the `model`"
+                                      " folder is located.\n\t3. Using paths with spaces."};
+            if (!existFile(mCaffeProto))
+                error("Prototxt file not found: " + mCaffeProto + message, __LINE__, __FUNCTION__, __FILE__);
+            if (!existFile(mCaffeTrainedModel))
+                error("Caffe trained model file not found: " + mCaffeTrainedModel + message,
+                      __LINE__, __FUNCTION__, __FILE__);
+            // Double if condition in order to speed up the program if it is called several times
+            if (enableGoogleLogging && !sGoogleLoggingInitialized)
             {
-                const std::string message{".\nPossible causes:\n\t1. Not downloading the OpenPose trained models."
-                                          "\n\t2. Not running OpenPose from the same directory where the `model`"
-                                          " folder is located.\n\t3. Using paths with spaces."};
-                if (!existFile(mCaffeProto))
-                    error("Prototxt file not found: " + mCaffeProto + message, __LINE__, __FUNCTION__, __FILE__);
-                if (!existFile(mCaffeTrainedModel))
-                    error("Caffe trained model file not found: " + mCaffeTrainedModel + message,
-                          __LINE__, __FUNCTION__, __FILE__);
-                // Double if condition in order to speed up the program if it is called several times
+                std::lock_guard<std::mutex> lock{sMutexNetTensorRT};
                 if (enableGoogleLogging && !sGoogleLoggingInitialized)
                 {
-                    std::lock_guard<std::mutex> lock{sMutexNetTensorRT};
-                    if (enableGoogleLogging && !sGoogleLoggingInitialized)
-                    {
-                        google::InitGoogleLogging("OpenPose");
-                        sGoogleLoggingInitialized = true;
-                    }
+                    google::InitGoogleLogging("OpenPose");
+                    sGoogleLoggingInitialized = true;
                 }
-                #ifdef USE_OPENCL
-                    // Initialize OpenCL
-                    if (!sOpenCLInitialized)
-                    {
-                        std::lock_guard<std::mutex> lock{sMutexNetTensorRT};
-                        if (!sOpenCLInitialized)
-                        {
-                            caffe::Caffe::set_mode(caffe::Caffe::GPU);
-                            std::vector<int> devices;
-                            const int maxNumberGpu = OpenCL::getTotalGPU();
-                            for (auto i = 0; i < maxNumberGpu; i++)
-                                devices.emplace_back(i);
-                            caffe::Caffe::SetDevices(devices);
-                            if (mGpuId >= maxNumberGpu)
-                                error("Unexpected error. Please, notify us.", __LINE__, __FUNCTION__, __FILE__);
-                            sOpenCLInitialized = true;
-                        }
-                    }
-                #endif
             }
+            createEngine();
+        }
         #endif
     };
 
@@ -120,15 +102,15 @@ namespace op
 
     NetTensorRT::NetTensorRT(const std::string& caffeProto, const std::string& caffeTrainedModel, const int gpuId,
                        const bool enableGoogleLogging, const std::string& lastBlobName)
-        #ifdef USE_CAFFE
+        #ifdef USE_TENSORRT
             : upImpl{new ImplNetTensorRT{caffeProto, caffeTrainedModel, gpuId, enableGoogleLogging,
                                       lastBlobName}}
         #endif
     {
         try
         {
-            #ifndef USE_CAFFE
-                UNUSED(netInputSize4D);
+            #ifndef USE_TENSORRT
+                //UNUSED(netInputSize4D);
                 UNUSED(caffeProto);
                 UNUSED(caffeTrainedModel);
                 UNUSED(gpuId);
@@ -151,36 +133,29 @@ namespace op
     {
         try
         {
-            #ifdef USE_CAFFE
+            #ifdef USE_TENSORRT
                 // Initialize net
-                #ifdef USE_OPENCL
-                    caffe::Caffe::set_mode(caffe::Caffe::GPU);
-                    caffe::Caffe::SelectDevice(upImpl->mGpuId, true);
-                    upImpl->upCaffeNet.reset(new caffe::Net<float>{upImpl->mCaffeProto, caffe::TEST,
-                                             caffe::Caffe::GetDefaultDevice()});
-                    upImpl->upCaffeNet->CopyTrainedLayersFrom(upImpl->mCaffeTrainedModel);
-                    OpenCL::getInstance(upImpl->mGpuId, CL_DEVICE_TYPE_GPU, true);
+                #ifdef USE_CUDA
+                    //caffe::Caffe::set_mode(caffe::Caffe::GPU);
+                    //caffe::Caffe::SetDevice(upImpl->mGpuId);
+                    cudaSetDevice(upImpl->mGpuId);
+                    //upImpl->upCaffeNet.reset(new caffe::Net<float>{upImpl->mCaffeProto, caffe::TEST});
                 #else
-                    #ifdef USE_CUDA
-                        caffe::Caffe::set_mode(caffe::Caffe::GPU);
-                        caffe::Caffe::SetDevice(upImpl->mGpuId);
-                        upImpl->upCaffeNet.reset(new caffe::Net<float>{upImpl->mCaffeProto, caffe::TEST});
+                    caffe::Caffe::set_mode(caffe::Caffe::CPU);
+                    #ifdef _WIN32
+                        upImpl->upCaffeNet.reset(new caffe::Net<float>{upImpl->mCaffeProto, caffe::TEST,
+                                                                        caffe::Caffe::GetCPUDevice()});
                     #else
-                        caffe::Caffe::set_mode(caffe::Caffe::CPU);
-                        #ifdef _WIN32
-                            upImpl->upCaffeNet.reset(new caffe::Net<float>{upImpl->mCaffeProto, caffe::TEST,
-                                                                           caffe::Caffe::GetCPUDevice()});
-                        #else
-                            upImpl->upCaffeNet.reset(new caffe::Net<float>{upImpl->mCaffeProto, caffe::TEST});
-                        #endif
-                    #endif
-                    upImpl->upCaffeNet->CopyTrainedLayersFrom(upImpl->mCaffeTrainedModel);
-                    #ifdef USE_CUDA
-                        cudaCheck(__LINE__, __FUNCTION__, __FILE__);
+                        upImpl->upCaffeNet.reset(new caffe::Net<float>{upImpl->mCaffeProto, caffe::TEST});
                     #endif
                 #endif
+
+                //upImpl->upCaffeNet->CopyTrainedLayersFrom(upImpl->mCaffeTrainedModel);
+                #ifdef USE_CUDA
+                    cudaCheck(__LINE__, __FUNCTION__, __FILE__);
+                #endif
                 // Set spOutputBlob
-                upImpl->spOutputBlob = upImpl->upCaffeNet->blob_by_name(upImpl->mLastBlobName);
+                //upImpl->spOutputBlob = upImpl->upCaffeNet->blob_by_name(upImpl->mLastBlobName);
                 if (upImpl->spOutputBlob == nullptr)
                     error("The output blob is a nullptr. Did you use the same name than the prototxt? (Used: "
                           + upImpl->mLastBlobName + ").", __LINE__, __FUNCTION__, __FILE__);
@@ -199,13 +174,14 @@ namespace op
     {
         try
         {
-            #ifdef USE_CAFFE
+            #ifdef USE_TENSORRT
                 // Sanity checks
                 if (inputData.empty())
                     error("The Array inputData cannot be empty.", __LINE__, __FUNCTION__, __FILE__);
                 if (inputData.getNumberDimensions() != 4 || inputData.getSize(1) != 3)
                     error("The Array inputData must have 4 dimensions: [batch size, 3 (RGB), height, width].",
                           __LINE__, __FUNCTION__, __FILE__);
+                std::cout << upImpl->mCaffeproto << std::endl;
                 // Reshape Caffe net if required
                 if (!vectorsAreEqual(upImpl->mNetInputSize4D, inputData.getSize()))
                 {
@@ -243,11 +219,11 @@ namespace op
         }
     }
 
-    boost::shared_ptr<caffe::Blob<float>> NetTensorRT::getOutputBlob() const
+    boost::shared_ptr<float> NetTensorRT::getOutputBlob() const
     {
         try
         {
-            #ifdef USE_CAFFE
+            #ifdef USE_TENSORRT
                 return upImpl->spOutputBlob;
             #else
                 return nullptr;
