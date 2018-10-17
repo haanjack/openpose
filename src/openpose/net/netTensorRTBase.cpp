@@ -165,4 +165,19 @@ ICudaEngine *createEngine(const std::string &caffeProto, const std::string &caff
     std::cerr << "Deploy file not specified" << std::endl;
     return nullptr;
     }
+
+    cudaError_t createTrtMemory(void** devBuffer, const ICudaEngine* engine, const int batchSize, const std::string& name)
+    {
+        size_t bindingIndex = engine->getBindingIndex(name.c_str());
+        printf("name=%s, bindingIndex=%d\n", name.c_str(), (int) bindingIndex);
+        Dims3 dimensions = static_cast<Dims3&&>(engine->getBindingDimensions((int) bindingIndex));
+        size_t eltCount = dimensions.d[0] * dimensions.d[1] * dimensions.d[2] * batchSize, memSize = eltCount * sizeof(float);
+
+        void* deviceMem;
+        cudaMalloc(&deviceMem, memSize);
+
+        (*devBuffer) = deviceMem;
+
+        return cudaGetLastError();
+    }
 }

@@ -32,8 +32,7 @@ if (UNIX OR APPLE)
     add_library(openpose_net ${SOURCES_OP_NET})
   endif ()
 
-  target_include_directories(openpose_net PUBLIC /usr/include/x86_64-linux-gnu/)
-  target_link_libraries(openpose_net )
+  link_directories(/usr/include/x86_64-linux-gnu/)
 
   add_library(caffe SHARED IMPORTED)
   set_property(TARGET caffe PROPERTY IMPORTED_LOCATION ${Caffe_LIBS}) 

@@ -23,6 +23,8 @@
 #include <utility>
 #include <vector>
 
+#include <openpose/gpu/cuda.hpp>
+
 using namespace std;
 using namespace nvinfer1;
 using namespace plugin;

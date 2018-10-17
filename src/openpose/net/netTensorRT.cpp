@@ -39,23 +39,31 @@ namespace op
         const int mGpuId;
         const std::string mCaffeProto;
         const std::string mCaffeTrainedModel;
-        const std::string mLastBlobName;
+        std::vector<std::string> mInputBlobName;
+        std::vector<std::string> mLastBlobName;
         std::vector<int> mNetInputSize4D;
+        int mBatchSize; // TODO: need to find some smooth way...
+        Logger mLogger;
 
         std::atomic<bool> sGoogleLoggingInitialized{false};
 
         // Init with thread
         //std::unique_ptr<caffe::Net<float>> upCaffeNet;
         //boost::shared_ptr<caffe::Blob<float>> spOutputBlob;
+        ICudaEngine* trtEngine;
+        std::vector<boost::shared_ptr<float>> mBuffer;
+        int mInputIndex;
+        int mOutputIndex;
         boost::shared_ptr<float> spOutputBlob;
 
         ImplNetTensorRT(const std::string &caffeProto,
                         const std::string &caffeTrainedModel, const int gpuId,
-                        const bool enableGoogleLogging, const std::string &lastBlobName) : 
+                        const bool enableGoogleLogging,
+                        const std::string &inputBlobName, 
+                        const std::string &lastBlobName) : 
                         mGpuId{gpuId},
                         mCaffeProto{caffeProto},
-                        mCaffeTrainedModel{caffeTrainedModel},
-                        mLastBlobName { lastBlobName }
+                        mCaffeTrainedModel{caffeTrainedModel}
         {
             const std::string message{".\nPossible causes:\n\t1. Not downloading the OpenPose trained models."
                                       "\n\t2. Not running OpenPose from the same directory where the `model`"
@@ -75,7 +83,27 @@ namespace op
                     sGoogleLoggingInitialized = true;
                 }
             }
-            createEngine();
+            
+            mInputBlobName.push_back(inputBlobName);
+            mLastBlobName.push_back(lastBlobName);
+            mBatchSize = 1;
+
+            trtEngine = createEngine(mCaffeProto, mCaffeTrainedModel, mInputBlobName, mLastBlobName, mBatchSize, 16, true, mLogger);
+
+            mInputIndex = trtEngine->getBindingIndex(mInputBlobName[0].c_str());
+            mOutputIndex = trtEngine->getBindingIndex(mLastBlobName[0].c_str());
+            
+            // Create device input & output buffer
+            createTrtMemory((void**)&mBuffer[mInputIndex], trtEngine, mBatchSize, mInputBlobName[0].c_str());
+            
+            auto deleter = [](float* ptr){ cudaFree(ptr); };
+            Dims3 outDim = static_cast<Dims3&&>(trtEngine->getBindingDimensions((int) mOutputIndex));
+            size_t eltCount = outDim.d[0] * outDim.d[1] * outDim.d[2] * mBatchSize;
+            boost::shared_ptr<float> outputBlob(new float[eltCount], deleter); 
+            cudaMalloc((void**)&outputBlob, eltCount * sizeof(float));
+
+            // Set spOutputBlob
+            spOutputBlob = outputBlob;
         }
         #endif
     };
@@ -98,11 +126,9 @@ namespace op
         }
     #endif
 
-    NetTensorRT::NetTensorRT(const std::string& caffeProto, const std::string& caffeTrainedModel, const int gpuId,
-                       const bool enableGoogleLogging, const std::string& lastBlobName)
+    NetTensorRT::NetTensorRT(const std::string& caffeProto, const std::string& caffeTrainedModel, const int gpuId, const bool enableGoogleLogging, const std::string& inputBlobName, const std::string& lastBlobName)
         #ifdef USE_TENSORRT
-            : upImpl{new ImplNetTensorRT{caffeProto, caffeTrainedModel, gpuId, enableGoogleLogging,
-                                      lastBlobName}}
+            : upImpl{new ImplNetTensorRT{caffeProto, caffeTrainedModel, gpuId, enableGoogleLogging, inputBlobName, lastBlobName}}
         #endif
     {
         try
@@ -152,11 +178,8 @@ namespace op
                 #ifdef USE_CUDA
                     cudaCheck(__LINE__, __FUNCTION__, __FILE__);
                 #endif
-                // Set spOutputBlob
-                //upImpl->spOutputBlob = upImpl->upCaffeNet->blob_by_name(upImpl->mLastBlobName);
-                if (upImpl->spOutputBlob == nullptr)
-                    error("The output blob is a nullptr. Did you use the same name than the prototxt? (Used: "
-                          + upImpl->mLastBlobName + ").", __LINE__, __FUNCTION__, __FILE__);
+                // Set spOutputBlob... move
+
                 #ifdef USE_CUDA
                     cudaCheck(__LINE__, __FUNCTION__, __FILE__);
                 #endif

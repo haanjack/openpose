@@ -12,7 +12,12 @@
 
 namespace op 
 {
-    OP_API ICudaEngine *createEngine();
+    OP_API ICudaEngine *createEngine(const std::string &caffeProto, const std::string &caffeTrainedModel,
+                          std::vector<std::string> &inputs, std::vector<std::string> &outputs,
+                          const int batchSize, const int workspaceSize, bool fp16,
+                          const Logger logger);
+    
+    OP_API cudaError_t createTrtMemory(void** devBuffer, const ICudaEngine* engine, const int batchSize, const std::string& name);
 }
 
 #endif // OPENPOSE_NET_NET_TENSORRT_BASE_HPP

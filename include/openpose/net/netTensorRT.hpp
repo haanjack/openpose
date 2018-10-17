@@ -10,8 +10,12 @@ namespace op
     class OP_API NetTensorRT : public Net
     {
     public:
-        NetTensorRT(const std::string& caffeProto, const std::string& caffeTrainedModel, const int gpuId = 0,
-                 const bool enableGoogleLogging = true, const std::string& lastBlobName = "net_output");
+        NetTensorRT(const std::string& caffeProto, 
+                const std::string& caffeTrainedModel, 
+                const int gpuId = 0,
+                const bool enableGoogleLogging = true, 
+                const std::string& inputBlobName = "image",
+                const std::string& lastBlobName = "net_output");
 
         virtual ~NetTensorRT();
 
