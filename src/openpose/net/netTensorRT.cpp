@@ -51,7 +51,7 @@ namespace op
         //std::unique_ptr<caffe::Net<float>> upCaffeNet;
         //boost::shared_ptr<caffe::Blob<float>> spOutputBlob;
         ICudaEngine* trtEngine;
-        std::vector<boost::shared_ptr<float>> mBuffer;
+        void* mBuffers[2];
         int mInputIndex;
         int mOutputIndex;
         boost::shared_ptr<float> spOutputBlob;
@@ -94,27 +94,20 @@ namespace op
             mOutputIndex = trtEngine->getBindingIndex(mLastBlobName[0].c_str());
             
             // Create device input & output buffer
-            createTrtMemory((void**)&mBuffer[mInputIndex], trtEngine, mBatchSize, mInputBlobName[0].c_str());
-            
-            auto deleter = [](float* ptr){ cudaFree(ptr); };
-            Dims3 outDim = static_cast<Dims3&&>(trtEngine->getBindingDimensions((int) mOutputIndex));
-            size_t eltCount = outDim.d[0] * outDim.d[1] * outDim.d[2] * mBatchSize;
-            boost::shared_ptr<float> outputBlob(new float[eltCount], deleter); 
-            cudaMalloc((void**)&outputBlob, eltCount * sizeof(float));
-
-            // Set spOutputBlob
-            spOutputBlob = outputBlob;
+            mBuffers[mInputIndex] = createTrtMemory(trtEngine, mBatchSize, mInputBlobName[0]);
+            spOutputBlob = createOutputBlob(trtEngine, mBatchSize, mLastBlobName[0]);
+            mBuffers[mOutputIndex] = spOutputBlob.get();
         }
         #endif
     };
 
     #ifdef USE_TENSORRT
-        inline void reshapeNetTensorRT(caffe::Net<float>* caffeNet, const std::vector<int>& dimensions)
+        inline void reshapeNetTensorRT(const std::vector<int>& dimensions)
         {
             try
             {
-                caffeNet->blobs()[0]->Reshape(dimensions);
-                caffeNet->Reshape();
+                // Setting input buffer
+                
                 #ifdef USE_CUDA
                     cudaCheck(__LINE__, __FUNCTION__, __FILE__);
                 #endif
@@ -207,18 +200,18 @@ namespace op
                 if (!vectorsAreEqual(upImpl->mNetInputSize4D, inputData.getSize()))
                 {
                     upImpl->mNetInputSize4D = inputData.getSize();
-                    reshapeNetTensorRT(upImpl->upCaffeNet.get(), inputData.getSize());
+                    reshapeNetTensorRT(inputData.getSize());
                 }
                 // Copy frame data to GPU memory
                 #ifdef USE_CUDA
-                    auto* gpuImagePtr = upImpl->upCaffeNet->blobs().at(0)->mutable_gpu_data();
-                    cudaMemcpy(gpuImagePtr, inputData.getConstPtr(), inputData.getVolume() * sizeof(float),
-                               cudaMemcpyHostToDevice);
-                    auto* cpuImagePtr = upImpl->upCaffeNet->blobs().at(0)->mutable_cpu_data();
-                    std::copy(inputData.getConstPtr(), inputData.getConstPtr() + inputData.getVolume(), cpuImagePtr);
+                    auto* gpuImagePtr = upImpl->mBuffers[upImpl->mInputIndex];
+                    cudaMemcpy(gpuImagePtr, inputData.getConstPtr(), inputData.getVolume() * sizeof(float), cudaMemcpyHostToDevice);
                 #endif
                 // Perform deep network forward pass
-                upImpl->upCaffeNet->ForwardFrom(0);
+                //upImpl->upCaffeNet->ForwardFrom(0);
+                IExecutionContext *context = upImpl->trtEngine->createExecutionContext();
+                context->enqueue(upImpl->mBatchSize, &upImpl->mBuffers[0], 0, nullptr);
+
                 // Cuda checks
                 #ifdef USE_CUDA
                     cudaCheck(__LINE__, __FUNCTION__, __FILE__);

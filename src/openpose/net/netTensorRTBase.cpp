@@ -4,6 +4,8 @@
 #include "NvInferPlugin.h"
 #include "NvCaffeParser.h"
 
+#include "boost/shared_ptr.hpp"
+
 using namespace nvinfer1;
 using namespace nvcaffeparser1;
 
@@ -166,18 +168,26 @@ ICudaEngine *createEngine(const std::string &caffeProto, const std::string &caff
     return nullptr;
     }
 
-    cudaError_t createTrtMemory(void** devBuffer, const ICudaEngine* engine, const int batchSize, const std::string& name)
+    float* createTrtMemory(const ICudaEngine* engine, const int batchSize, const std::string& name)
     {
-        size_t bindingIndex = engine->getBindingIndex(name.c_str());
-        printf("name=%s, bindingIndex=%d\n", name.c_str(), (int) bindingIndex);
-        Dims3 dimensions = static_cast<Dims3&&>(engine->getBindingDimensions((int) bindingIndex));
-        size_t eltCount = dimensions.d[0] * dimensions.d[1] * dimensions.d[2] * batchSize, memSize = eltCount * sizeof(float);
+        float *blobPtr;
 
-        void* deviceMem;
-        cudaMalloc(&deviceMem, memSize);
+        Dims3 dim = static_cast<Dims3&&>(engine->getBindingDimensions((int)engine->getBindingIndex(name.c_str())));
+        size_t elemCount = dim.d[0] * dim.d[1] * dim.d[2] * batchSize;
+        cudaMalloc((void**)&blobPtr, elemCount * sizeof(float));
+        
+        return blobPtr;
+    }
 
-        (*devBuffer) = deviceMem;
+    boost::shared_ptr<float> createOutputBlob(const ICudaEngine* engine, const int batchSize, const std::string& name)
+    {
+        auto _cudaMalloc = [](size_t size) { void *ptr; cudaMalloc((void**)&ptr, size); return ptr; };
+        auto deleter = [](void *ptr) { cudaFree(ptr); };
 
-        return cudaGetLastError();
+        Dims3 dim = static_cast<Dims3&&>(engine->getBindingDimensions((int)engine->getBindingIndex(name.c_str())));
+        size_t elemCount = dim.d[0] * dim.d[1] * dim.d[2] * batchSize;
+        boost::shared_ptr<float> blobPtr((float*)_cudaMalloc(elemCount * sizeof(float)), deleter);
+        
+        return blobPtr;
     }
 }
